@@ -8988,6 +8988,7 @@ dissect_nt_trans_param_response(tvbuff_t *tvb, packet_info *pinfo,
 	smb_fid_info_t         *fid_info = NULL;
 	guint16                 ftype;
 	guint8                  isdir;
+	guint8                  ext_resp = 0;
 
 	DISSECTOR_ASSERT(si);
 
@@ -9022,6 +9023,7 @@ dissect_nt_trans_param_response(tvbuff_t *tvb, packet_info *pinfo,
 		offset += 1;
 
 		/* reserved byte */
+		ext_resp = tvb_get_guint8(tvb, offset);
 	        proto_tree_add_item(tree, hf_smb_reserved, tvb, offset, 1, ENC_NA);
 		offset += 1;
 
@@ -9077,6 +9079,31 @@ dissect_nt_trans_param_response(tvbuff_t *tvb, packet_info *pinfo,
 		isdir = tvb_get_guint8(tvb, offset);
 		proto_tree_add_item(tree, hf_smb_is_directory, tvb, offset, 1, ENC_LITTLE_ENDIAN);
 		offset += 1;
+
+		/* decode extended response per [MS-SMB] 2.2.7.1.2
+		   (volume_guid, file_id, max_acc, guest_acc)
+		   Just like dissect_nt_create_andx_response */
+		if (ext_resp != 0) {
+			proto_tree *tr = NULL;
+
+			/* The first field is a Volume GUID ... */
+			proto_tree_add_item(tree, hf_smb_volume_guid,
+					    tvb, offset, 16, ENC_NA);
+			offset += 16;
+
+			/* The file ID comes next */
+			proto_tree_add_item(tree, hf_smb_file_id_64bit,
+					    tvb, offset, 8, ENC_LITTLE_ENDIAN);
+			offset += 8;
+
+			tr = proto_tree_add_subtree(tree, tvb, offset, 4,
+				ett_smb_nt_access_mask, NULL, "Maximal Access Rights");
+			offset = dissect_smb_access_mask(tvb, tr, offset);
+
+			tr = proto_tree_add_subtree(tree, tvb, offset, 4,
+				ett_smb_nt_access_mask, NULL, "Guest Maximal Access Rights");
+			offset = dissect_smb_access_mask(tvb, tr, offset);
+		}
 
 		/* Try to remember the type of this fid so that we can dissect
 		 * any future security descriptor (access mask) properly
